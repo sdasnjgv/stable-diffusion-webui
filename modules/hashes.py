@@ -1,7 +1,7 @@
 import hashlib
 import os.path
 
-from modules import shared
+from modules import shared, errors
 import modules.cache
 
 dump_cache = modules.cache.dump_cache
@@ -82,3 +82,31 @@ def addnet_hash_safetensors(b):
 
     return hash_sha256.hexdigest()
 
+
+def partial_hash_from_cache(filename, ignore_cache=False):
+    """old hash that only looks at a small part of the file and is prone to collisions
+    kept for compatibility, don't use this for new things
+    """
+    try:
+        filename = str(filename)
+        mtime = os.path.getmtime(filename)
+        hashes = cache('partial-hash')
+        cache_entry = hashes.get(filename, {})
+        cache_mtime = cache_entry.get("mtime", 0)
+        cache_hash = cache_entry.get("hash", None)
+        if mtime == cache_mtime and cache_hash and not ignore_cache:
+            return cache_hash
+
+        with open(filename, 'rb') as file:
+            m = hashlib.sha256()
+            file.seek(0x100000)
+            m.update(file.read(0x10000))
+            partial_hash = m.hexdigest()
+            hashes[filename] = {'mtime': mtime, 'hash': partial_hash}
+            return partial_hash[0:8]
+
+    except FileNotFoundError:
+        pass
+    except Exception:
+        errors.report(f'Error calculating partial hash for {filename}', exc_info=True)
+    return 'NOFILE'
